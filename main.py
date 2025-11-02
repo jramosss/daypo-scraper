@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import sqlite3
-from time import sleep
 
 from playwright.async_api import async_playwright
 
