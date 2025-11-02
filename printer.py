@@ -1,21 +1,21 @@
-import sqlite3
+from database import Database
 
-conn = sqlite3.connect("cuestionarios.db")
-c = conn.cursor()
+db = Database()
 
-query = "SELECT * FROM preguntas LIMIT 250"
-results = c.execute(query)
+# Obtener todas las preguntas (opcionalmente puedes filtrar por cuestionario_id)
+preguntas = db.obtener_preguntas(limit=250)
+
 text = ""
 
-for row in list(results):
-    pregunta = row[1]
-    text += f"{pregunta}\n"
-    respuestas = c.execute("SELECT * FROM respuestas WHERE pregunta_id = ?", (row[0],))
-    for respuesta in respuestas:
-        text += f"{respuesta[2]} {'---Correcta' if respuesta[3] == 1 else ''}\n"
+for pregunta_row in preguntas:
+    pregunta_id, cuestionario_id, pregunta_texto = pregunta_row
+    text += f"{pregunta_texto}\n"
+
+    respuestas = db.obtener_respuestas(pregunta_id)
+    for respuesta_row in respuestas:
+        respuesta_id, pregunta_id_resp, texto, correcta = respuesta_row
+        text += f"{texto} {'---Correcta' if correcta == 1 else ''}\n"
     text += "\n"
 
 with open("cuestionarios.txt", "w") as f:
     f.write(text)
-
-conn.close()

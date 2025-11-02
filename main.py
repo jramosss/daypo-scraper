@@ -1,38 +1,11 @@
 import asyncio
 import base64
-import sqlite3
+from typing import Any, Dict, List
 
-from playwright.async_api import async_playwright
+from playwright.async_api import Page, async_playwright
 
-# Constante de referencia (canvas "correcto")
-CORRECT_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEUAAABFCAYAAAAcjSspAAAC50lEQVR4AezYzU4UQRQF4DOjS4nxBXwCF8bfFYobN+qzmKhrE/fGxBfgKXTlwiVGR/4CK7Yk7GBHAmRmuKc6MMNw6TDddauozu1QPc2dUFX9caamu/vw7ZKAo1wiARzFURQBpeRJcRRFQCl5UhxFEVBKnhRHUQSUkifFURQBpeRJcRRFQCl1NynKyV635CiKVLdQfuOOco5zl7qDMsArLGAXA3zGFlrhdAcF+CCRuCvtC47wXV4b/3QDhSkB3p4rDPHt/LjBQTdQqpRUp9/DMp5hu/ql2b58lMgpIWP5KJFTUj6KQUrKRzFISdkoRikpG8UoJeWiGKakXBTDlBSAwinONOOUcLQSr1N4j8O5AxGuXqFsZaEkSAmNykIxXksIwhYPZRP32KFZm03JLbS6E66bZxyUDTzAMdbxH4uw2y6uJQ/b3QnXTbM9CkFO8FMGuY+RvFrAJEyJnAfaowyxIB1Vj/96cmwDkywlci4RUB5hRXrhU699dojYMGtYwvRTNcO1RMYJP+2Twm40mHGkj9IQHzlEaLwuMVxLwhiyi4MiHWEWBvJRIsxfvODbjVqGlHCe8VDYmwbTxw80hRkh6VrCU2CLi8IeCTPEZI1hYprAMCVjvGOXoSVYS8I4souPIp3iOVbQFiZTSjh9GxT23AYmY0o4dTsU9l7BzP9RypgSTtsWhSPMC5M5JZyyPQpHOYMZo7rAq1t8M6eE002DwpEIM5JvpTqYf1hCpm8cTG3pUDjoVTCrqC7w+nmuSzi16ZYWhSNrMCO5wBvgPW5ASjjF9CgclTB9vBGEyRoDfOVboSW6xwljKbs8KJzIY/zBRZjbLIeW8Oo1jDezy4fCiUzD9LAjyfkljx6WkeBOGDVbXhRObALzEk/xGof4xHLOlh+FZ0+YJ9jjIRZxEF4z7m4GSkYAbWhHUVQcxVEUAaV07aQof9vZkqMo/1pHcRRFQCl5UhxFEVBKnhRHUQSUkifFURQBpXQKAAD//7oMqq0AAAAGSURBVAMA9UPBi92NAsUAAAAASUVORK5CYII="
-CONTESTAR_XPATH = "/html/body/div[2]/div[3]/div[3]/table/tbody/tr/td[9]/table/tbody/tr/td[2]/div"
-SIGUIENTE_XPATH = "/html/body/div[2]/div[3]/div[3]/table/tbody/tr/td[9]/table/tbody/tr/td[2]/div"
-NUMERO_DE_PREGUNTAS_XPATH = "/html/body/div[2]/div[3]/div[1]/table/tbody/tr/td[2]/table/tbody/tr/td[2]"
-TABLE_XPATH = """//*[@id="cuestiones1"]/table"""
-
-# Inicializa la base de datos
-def init_db():
-    conn = sqlite3.connect("cuestionarios.db")
-    c = conn.cursor()
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS preguntas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        texto TEXT
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS respuestas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pregunta_id INTEGER,
-        texto TEXT,
-        correcta INTEGER,
-        FOREIGN KEY (pregunta_id) REFERENCES preguntas(id)
-    )
-    """)
-    conn.commit()
-    conn.close()
-
+from constants import CONTESTAR_XPATH, NUMERO_DE_PREGUNTAS_XPATH, SIGUIENTE_XPATH
+from database import Database
 
 
 def same_image(b64_1: str, b64_2: str) -> bool:
@@ -47,96 +20,187 @@ def same_image(b64_1: str, b64_2: str) -> bool:
     # Comparar los bytes directamente
     return bytes1 == bytes2
 
-async def scrape(url: str):
+
+def extraer_nombre_cuestionario(url: str) -> str:
+    """Extrae el nombre del cuestionario desde la URL"""
+    return url.split("/")[-1].replace(".html", "").replace("#test", "")
+
+
+async def obtener_numero_preguntas(page: Page) -> int:
+    """Obtiene el número total de preguntas del cuestionario"""
+    numero_de_preguntas_element = page.locator(f"xpath={NUMERO_DE_PREGUNTAS_XPATH}")
+    numero_de_preguntas_text = await numero_de_preguntas_element.inner_text()
+    numero_de_preguntas = numero_de_preguntas_text.split("/")[-1]
+    return int(numero_de_preguntas)
+
+
+async def click_posponer(page: Page) -> None:
+    """Hace clic en el botón 'Posponer' si está disponible"""
+    try:
+        posponer = page.locator(f"xpath={CONTESTAR_XPATH}")
+        if await posponer.count() > 0:
+            await posponer.click()
+    except Exception as e:
+        print(f"No se pudo hacer clic en Posponer: {e}")
+
+
+async def extraer_texto_pregunta(page: Page) -> str:
+    """Extrae el texto de la pregunta actual"""
+    pregunta_elem = page.locator("td[id^='pri']")
+    if await pregunta_elem.count() > 0:
+        return await pregunta_elem.inner_text()
+    return "Pregunta desconocida"
+
+
+def determinar_respuesta_correcta(data_url: str) -> int:
+    """
+    Determina si una respuesta es correcta basándose en el canvas
+
+    Args:
+        data_url: URL de datos del canvas
+
+    Returns:
+        1 si es correcta, 0 si no
+    """
+    # TODO: encontrar mejor manera de determinar si la imagen es el tick verde
+    return 1 if len(data_url) > 400 else 0
+
+
+async def extraer_respuestas_pregunta(page: Page) -> List[Dict[str, Any]]:
+    """
+    Extrae todas las respuestas de la pregunta actual
+
+    Returns:
+        Lista de diccionarios con 'texto' y 'correcta'
+    """
+    respuestas = []
+
+    # Obtener todos los canvas de respuestas
+    vai_canvases = await page.query_selector_all("canvas[id^='vai']")
+
+    # Obtener los textos de las respuestas
+    respuestas_td = await page.locator("td[id='cuestiones1']").locator("td.pr05").all_inner_texts()
+
+    for idx, canvas in enumerate(vai_canvases):
+        canvas_id = await canvas.get_attribute("id")
+        data_url = await page.evaluate(f"document.getElementById('{canvas_id}').toDataURL()")
+
+        # Obtener el texto de la respuesta
+        texto = "Respuesta desconocida"
+        if idx < len(respuestas_td):
+            texto = respuestas_td[idx]
+
+        # Determinar si es correcta
+        es_correcta = determinar_respuesta_correcta(data_url)
+
+        respuestas.append({
+            'texto': texto.strip(),
+            'correcta': es_correcta
+        })
+
+    return respuestas
+
+
+async def avanzar_pregunta(page: Page) -> None:
+    """Hace clic en el botón 'Siguiente' para avanzar a la siguiente pregunta"""
+    siguiente = page.locator(f"xpath={SIGUIENTE_XPATH}")
+    await siguiente.click()
+
+
+async def extraer_datos_cuestionario(page: Page, numero_preguntas: int) -> tuple[List[str], List[Dict[str, Any]]]:
+    """
+    Extrae todos los datos del cuestionario (preguntas y respuestas)
+
+    Returns:
+        Tupla con (lista de textos de preguntas, lista de respuestas con pregunta_idx)
+    """
+    preguntas_data = []
+    respuestas_data = []
+
+    for i in range(numero_preguntas):
+        # Hacer clic en posponer si es necesario
+        await click_posponer(page)
+
+        # Extraer la pregunta
+        pregunta_texto = await extraer_texto_pregunta(page)
+        preguntas_data.append(pregunta_texto)
+        pregunta_idx = len(preguntas_data) - 1
+
+        # Extraer las respuestas
+        respuestas = await extraer_respuestas_pregunta(page)
+
+        # Agregar el índice de pregunta a cada respuesta
+        for respuesta in respuestas:
+            respuestas_data.append({
+                'pregunta_idx': pregunta_idx,
+                'texto': respuesta['texto'],
+                'correcta': respuesta['correcta']
+            })
+
+        # Avanzar a la siguiente pregunta (excepto en la última)
+        if i < numero_preguntas - 1:
+            await avanzar_pregunta(page)
+
+    return preguntas_data, respuestas_data
+
+
+def guardar_cuestionario(db: Database, cuestionario_id: int,
+                         preguntas_data: List[str], respuestas_data: List[Dict[str, Any]]) -> None:
+    """
+    Guarda el cuestionario completo en la base de datos
+
+    Args:
+        db: Instancia de Database
+        cuestionario_id: ID del cuestionario
+        preguntas_data: Lista de textos de preguntas
+        respuestas_data: Lista de respuestas con pregunta_idx
+    """
+    # Insertar todas las preguntas
+    pregunta_ids = db.insertar_preguntas_batch(cuestionario_id, preguntas_data)
+
+    # Preparar las respuestas para inserción
+    respuestas_to_insert = [
+        (pregunta_ids[r['pregunta_idx']], r['texto'], r['correcta'])
+        for r in respuestas_data
+    ]
+
+    # Insertar todas las respuestas
+    db.insertar_respuestas_batch(respuestas_to_insert)
+
+
+async def scrape(url: str) -> None:
+    """
+    Función principal que realiza el scraping completo de un cuestionario
+
+    Args:
+        url: URL del cuestionario a scrapear
+    """
+    db = Database()
+
+    # Crear el cuestionario en la base de datos
+    nombre_cuestionario = extraer_nombre_cuestionario(url)
+    cuestionario_id = db.crear_cuestionario(url, nombre_cuestionario)
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
         await page.goto(url)
 
-        numero_de_preguntas_element = page.locator(f"xpath={NUMERO_DE_PREGUNTAS_XPATH}")
-        numero_de_preguntas_text = await numero_de_preguntas_element.inner_text()
-        numero_de_preguntas = numero_de_preguntas_text.split("/")[-1]
+        # Obtener el número de preguntas
+        numero_preguntas = await obtener_numero_preguntas(page)
 
-        # Listas para acumular datos
-        preguntas_data = []
-        respuestas_data = []
+        # Extraer todos los datos del cuestionario
+        preguntas_data, respuestas_data = await extraer_datos_cuestionario(page, numero_preguntas)
 
-        for i in range(int(numero_de_preguntas)):
-            # Clic en "Posponer"
-            try:
-                posponer = page.locator(f"xpath={CONTESTAR_XPATH}")
-                if await posponer.count() > 0:
-                    await posponer.click()
-            except Exception as e:
-                print(f"No se pudo hacer clic en Posponer: {e}")
-
-            # Obtener texto de la pregunta
-            pregunta_elem = page.locator("td[id^='pri']")
-            pregunta_texto = await pregunta_elem.inner_text() if await pregunta_elem.count() > 0 else "Pregunta desconocida"
-
-            preguntas_data.append(pregunta_texto)
-            pregunta_idx = len(preguntas_data) - 1
-
-            # Iterar sobre los canvas "vaiX"
-            vai_canvases = await page.query_selector_all("canvas[id^='vai']")
-
-            # Debug: ver cuántos td.pr05 hay
-            respuestas_td = await page.locator("td[id='cuestiones1']").locator("td.pr05").all_inner_texts()
-
-            for idx, canvas in enumerate(vai_canvases):
-                canvas_id = await canvas.get_attribute("id")
-                data_url = await page.evaluate(f"document.getElementById('{canvas_id}').toDataURL()")
-
-                texto = "Respuesta desconocida"
-                if idx < len(respuestas_td):
-                    texto = respuestas_td[idx]
-
-                # encontrar mejor manera de determinar si la imagen es el tick verde
-                es_correcta = 1 if len(data_url) > 400 else 0
-
-                respuestas_data.append({
-                    'pregunta_idx': pregunta_idx,
-                    'texto': texto.strip(),
-                    'correcta': es_correcta
-                })
-
-            siguiente = page.locator(f"xpath={SIGUIENTE_XPATH}")
-
-            await siguiente.click()
-
-
-        # Guardar todo en la base de datos
-        conn = sqlite3.connect("cuestionarios.db")
-        c = conn.cursor()
-
-        # Insertar todas las preguntas
-        c.executemany("INSERT INTO preguntas (texto) VALUES (?)",
-                      [(p,) for p in preguntas_data])
-
-        # Obtener los IDs de las preguntas insertadas
-        pregunta_ids = [row[0] for row in c.execute(
-            "SELECT id FROM preguntas ORDER BY id DESC LIMIT ?",
-            (len(preguntas_data),)
-        ).fetchall()][::-1]
-
-        # Insertar todas las respuestas con los IDs correctos
-        respuestas_to_insert = [
-            (pregunta_ids[r['pregunta_idx']], r['texto'], r['correcta'])
-            for r in respuestas_data
-        ]
-        c.executemany(
-            "INSERT INTO respuestas (pregunta_id, texto, correcta) VALUES (?, ?, ?)",
-            respuestas_to_insert
-        )
-
-        conn.commit()
-        conn.close()
+        # Cerrar el navegador
         await browser.close()
 
+    # Guardar en la base de datos
+    guardar_cuestionario(db, cuestionario_id, preguntas_data, respuestas_data)
+
+    print(f"Cuestionario guardado con ID: {cuestionario_id}")
+
 if __name__ == "__main__":
-    init_db()
     # url = input("Ingrese la URL del cuestionario: ").strip()
     url = "https://www.daypo.com/ng-principios-economia-primer-parcial.html#test"
     asyncio.run(scrape(url))
-
-
