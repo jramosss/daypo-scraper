@@ -1,21 +1,31 @@
+import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple
 
 from constants import DB_NAME
 
+# Calculate the absolute path to the database
+# This ensures that no matter from where the script is called, it always uses the correct DB
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ABS_DB_PATH = os.path.join(BASE_DIR, DB_NAME)
+
 
 class Database:
     """Wrapper para operaciones de base de datos"""
 
-    def __init__(self, db_name: str = DB_NAME):
+    def __init__(self, db_name: str = ABS_DB_PATH):
         self.db_name = db_name
         self.init_db()
 
     def get_connection(self) -> sqlite3.Connection:
         """Obtiene una conexión a la base de datos"""
-        conn = sqlite3.connect(self.db_name)
-        conn.execute("PRAGMA foreign_keys = ON")  # Habilitar claves foráneas
-        return conn
+        print(f"DEBUG: Attempting to connect to database at: {self.db_name}")
+        try:
+            conn = sqlite3.connect(self.db_name)
+            conn.execute("PRAGMA foreign_keys = ON")  # Habilitar claves foráneas
+            return conn
+        except sqlite3.OperationalError as e:
+            raise sqlite3.OperationalError(f"{str(e)} (path: {self.db_name})")
 
     def init_db(self):
         """Inicializa las tablas de la base de datos"""
@@ -25,7 +35,7 @@ class Database:
         # Crear tabla cuestionarios
         c.execute("""
         CREATE TABLE IF NOT EXISTS cuestionarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT PRIMARY KEY,
             url TEXT,
             nombre TEXT,
             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -36,7 +46,7 @@ class Database:
         c.execute("""
         CREATE TABLE IF NOT EXISTS preguntas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuestionario_id INTEGER,
+            cuestionario_id TEXT,
             texto TEXT,
             FOREIGN KEY (cuestionario_id) REFERENCES cuestionarios(id) ON DELETE CASCADE
         )
@@ -56,32 +66,35 @@ class Database:
         conn.commit()
         conn.close()
 
-    def crear_cuestionario(self, url: str, nombre: Optional[str] = None) -> int:
+    def crear_cuestionario(self, url: str, nombre: str) -> str:
         """
-        Crea un nuevo cuestionario y retorna su ID
+        Crea un nuevo cuestionario y retorna su ID (el nombre)
 
         Args:
             url: URL del cuestionario
-            nombre: Nombre opcional del cuestionario
+            nombre: Nombre del cuestionario (usado como ID)
 
         Returns:
-            ID del cuestionario creado
+            ID del cuestionario creado (el nombre)
         """
         conn = self.get_connection()
         c = conn.cursor()
 
-        c.execute(
-            "INSERT INTO cuestionarios (url, nombre) VALUES (?, ?)",
-            (url, nombre)
-        )
+        try:
+            c.execute(
+                "INSERT INTO cuestionarios (id, url, nombre) VALUES (?, ?, ?)",
+                (nombre, url, nombre)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            # Si ya existe, podríamos actualizarlo o simplemente devolver el nombre
+            pass
+        finally:
+            conn.close()
 
-        cuestionario_id = c.lastrowid
-        conn.commit()
-        conn.close()
+        return nombre
 
-        return cuestionario_id
-
-    def insertar_pregunta(self, cuestionario_id: int, texto: str) -> int:
+    def insertar_pregunta(self, cuestionario_id: str, texto: str) -> int:
         """
         Inserta una pregunta y retorna su ID
 
@@ -106,7 +119,7 @@ class Database:
 
         return pregunta_id
 
-    def insertar_preguntas_batch(self, cuestionario_id: int, textos: List[str]) -> List[int]:
+    def insertar_preguntas_batch(self, cuestionario_id: str, textos: List[str]) -> List[int]:
         """
         Inserta múltiples preguntas y retorna sus IDs
 
@@ -186,7 +199,7 @@ class Database:
         conn.commit()
         conn.close()
 
-    def obtener_preguntas(self, cuestionario_id: Optional[int] = None, limit: Optional[int] = None) -> List[Tuple]:
+    def obtener_preguntas(self, cuestionario_id: Optional[str] = None, limit: Optional[int] = None) -> List[Tuple]:
         """
         Obtiene preguntas de la base de datos
 
@@ -252,12 +265,12 @@ class Database:
 
         return results
 
-    def obtener_cuestionario_por_id(self, cuestionario_id: int) -> Optional[Tuple]:
+    def obtener_cuestionario_por_id(self, cuestionario_id: str) -> Optional[Tuple]:
         """
-        Obtiene un cuestionario por su ID
+        Obtiene un cuestionario por su ID (nombre)
 
         Args:
-            cuestionario_id: ID del cuestionario
+            cuestionario_id: ID (nombre) del cuestionario
 
         Returns:
             Tupla (id, url, nombre, fecha_creacion) o None si no existe
