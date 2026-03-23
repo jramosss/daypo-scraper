@@ -16,7 +16,6 @@ class Database:
     def __init__(self, db_name: str = ABS_DB_PATH):
         self.db_name = db_name
         self.init_db()
-
     def get_connection(self) -> sqlite3.Connection:
         """Obtiene una conexión a la base de datos"""
         print(f"DEBUG: Attempting to connect to database at: {self.db_name}")
