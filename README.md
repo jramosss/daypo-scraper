@@ -37,7 +37,38 @@ You will be prompted to paste the quiz URL.
 - The script calls `.toDataURL()` on those canvases and compares the data URL to a provided reference image string.
 - If they match, the answer is marked as correct.
 
-### Notes
+### User Interface (MCP Server)
 
-- Dependencies used: Playwright (third-party), `sqlite3` (built-in), `asyncio` (built-in).
-- The browser is launched in non-headless mode by default for visibility.
+This project includes a Model Context Protocol (MCP) server that allows LLMs to interact with the scraper and the database.
+
+#### Installation
+
+1. Install all dependencies:
+   ```bash
+   pip install -r requirements.txt
+   playwright install
+   ```
+
+#### Usage with Claude Desktop
+
+Add the following to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "daypo-scraper": {
+      "command": "python",
+      "args": ["/path/to/quiz_scraper/mcp_server.py"],
+      "env": {
+        "PYTHONPATH": "/path/to/quiz_scraper"
+      }
+    }
+  }
+}
+```
+
+#### Available Tools
+
+- `scrape_daypo`: Scrapes a quiz given its URL or ID.
+- `list_scraped_quizzes`: Shows a list of quizzes already in the database.
+- `get_quiz_content`: Retrieves questions and answers for a specific quiz ID.

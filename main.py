@@ -144,7 +144,7 @@ async def extraer_datos_cuestionario(page: Page, numero_preguntas: int) -> tuple
     return preguntas_data, respuestas_data
 
 
-def guardar_cuestionario(db: Database, cuestionario_id: int,
+def guardar_cuestionario(db: Database, cuestionario_id: str,
                          preguntas_data: List[str], respuestas_data: List[Dict[str, Any]]) -> None:
     """
     Guarda el cuestionario completo en la base de datos
@@ -175,32 +175,56 @@ async def scrape(url: str) -> None:
     Args:
         url: URL del cuestionario a scrapear
     """
-    db = Database()
+    try:
+        db = Database()
+        print(f"DEBUG: Using database at {db.db_name}")
 
-    # Crear el cuestionario en la base de datos
-    nombre_cuestionario = extraer_nombre_cuestionario(url)
-    cuestionario_id = db.crear_cuestionario(url, nombre_cuestionario)
+        # Crear el cuestionario en la base de datos
+        nombre_cuestionario = extraer_nombre_cuestionario(url)
+        cuestionario_id = db.crear_cuestionario(url, nombre_cuestionario)
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        await page.goto(url)
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url)
 
-        # Obtener el número de preguntas
-        numero_preguntas = await obtener_numero_preguntas(page)
+            # Obtener el número de preguntas
+            numero_preguntas = await obtener_numero_preguntas(page)
 
-        # Extraer todos los datos del cuestionario
-        preguntas_data, respuestas_data = await extraer_datos_cuestionario(page, numero_preguntas)
+            # Extraer todos los datos del cuestionario
+            preguntas_data, respuestas_data = await extraer_datos_cuestionario(page, numero_preguntas)
 
-        # Cerrar el navegador
-        await browser.close()
+            # Cerrar el navegador
+            await browser.close()
 
-    # Guardar en la base de datos
-    guardar_cuestionario(db, cuestionario_id, preguntas_data, respuestas_data)
+        # Guardar en la base de datos
+        guardar_cuestionario(db, cuestionario_id, preguntas_data, respuestas_data)
 
-    print(f"Cuestionario guardado con ID: {cuestionario_id}")
+        print(f"Cuestionario guardado con ID: {cuestionario_id}")
+        return cuestionario_id
+    except Exception as e:
+        print(f"DEBUG: Error in scrape(): {type(e).__name__}: {str(e)}")
+        raise e
 
 if __name__ == "__main__":
-    # url = input("Ingrese la URL del cuestionario: ").strip()
-    url = "https://www.daypo.com/ng-principios-economia-primer-parcial.html#test"
+    import sys
+    if len(sys.argv) <= 1:
+        print("Uso: python main.py <URL_DEL_CUESTIONARIO o ID_DEL_CUESTIONARIO>")
+        sys.exit(1)
+        
+    url_or_id = sys.argv[1].strip()
+    
+    # Si no es una URL (no empieza con http), construimos la URL a partir del ID
+    if not url_or_id.startswith("http"):
+        # Si no tiene .html, lo añadimos
+        if not url_or_id.endswith(".html"):
+            url = f"https://www.daypo.com/{url_or_id}.html"
+        else:
+            url = f"https://www.daypo.com/{url_or_id}"
+    else:
+        url = url_or_id
+        
+    if not url.endswith("#test"):
+        url += "#test"
+        
     asyncio.run(scrape(url))

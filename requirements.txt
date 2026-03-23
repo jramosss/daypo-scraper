@@ -1,3 +1,5 @@
 playwright
-sqlite3
-asyncio
+fastapi
+uvicorn
+pydantic
+mcp
