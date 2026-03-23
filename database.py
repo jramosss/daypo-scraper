@@ -18,9 +18,13 @@ class Database:
         self.init_db()
     def get_connection(self) -> sqlite3.Connection:
         """Obtiene una conexión a la base de datos"""
-        conn = sqlite3.connect(self.db_name)
-        conn.execute("PRAGMA foreign_keys = ON")  # Habilitar claves foráneas
-        return conn
+        print(f"DEBUG: Attempting to connect to database at: {self.db_name}")
+        try:
+            conn = sqlite3.connect(self.db_name)
+            conn.execute("PRAGMA foreign_keys = ON")  # Habilitar claves foráneas
+            return conn
+        except sqlite3.OperationalError as e:
+            raise sqlite3.OperationalError(f"{str(e)} (path: {self.db_name})")
 
     def init_db(self):
         """Inicializa las tablas de la base de datos"""
