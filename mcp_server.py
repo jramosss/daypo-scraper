@@ -1,7 +1,7 @@
 import os
 import asyncio
 from mcp.server.fastmcp import FastMCP
-from main import scrape
+from main import scrape, buscar_daypos
 from database import Database
 from constants import DB_NAME
 
@@ -13,18 +13,31 @@ db_path = os.path.join(base_path, DB_NAME)
 mcp = FastMCP("Daypo Scraper")
 
 @mcp.tool()
+async def search_daypo(subject: str) -> list:
+    """
+    Searches Daypo for quizzes related to a subject.
+    Returns matches that are relevant (e.g., Siglo 21, Parciales).
+
+    Args:
+        subject: The name of the subject to search for.
+    """
+    try:
+        results = await buscar_daypos(subject)
+        return results
+    except Exception as e:
+        import traceback
+        return [{"error": f"Error searching Daypo: {str(e)}", "details": traceback.format_exc()}]
+
+@mcp.tool()
 async def scrape_daypo(url_or_id: str) -> str:
     """
     Scrapes a Daypo quiz based on a URL or a quiz ID.
-    
+
     Args:
-        url_or_id: The full URL (e.g., https://www.daypo.com/quiz-name.html) 
+        url_or_id: The full URL (e.g., https://www.daypo.com/quiz-name.html)
                    or just the quiz ID/name (e.g., quiz-name).
     """
     url = url_or_id
-    import os, getpass
-    print(f"DEBUG: MCP Process - User: {getpass.getuser()}, CWD: {os.getcwd()}")
-    
     # If it's just an ID/slug, construct the URL
     if not url.startswith("http"):
         # Common pattern for Daypo URLs
@@ -32,11 +45,11 @@ async def scrape_daypo(url_or_id: str) -> str:
             url = f"https://www.daypo.com/{url}.html"
         else:
             url = f"https://www.daypo.com/{url}"
-    
+
     # Ensure it ends with #test to skip the landing page if possible
     if "#test" not in url:
         url += "#test"
-        
+
     try:
         quiz_id = await scrape(url)
         return f"Successfully scraped quiz. Database ID: {quiz_id}. URL: {url}"
@@ -58,7 +71,7 @@ def list_scraped_quizzes() -> list:
             "url": q[1],
             "nombre": q[2],
             "fecha_creacion": q[3]
-        } 
+        }
         for q in quizzes
     ]
 
@@ -66,7 +79,7 @@ def list_scraped_quizzes() -> list:
 def get_quiz_content(quiz_id: str) -> dict:
     """
     Retrieves the full content (questions and answers) of a previously scraped quiz.
-    
+
     Args:
         quiz_id: The ID (name) of the quiz in the database.
     """
@@ -74,7 +87,7 @@ def get_quiz_content(quiz_id: str) -> dict:
     quiz = db.obtener_cuestionario_por_id(quiz_id)
     if not quiz:
         return {"error": f"Quiz with ID {quiz_id} not found."}
-    
+
     preguntas = db.obtener_preguntas(quiz_id)
     result = {
         "id": quiz[0],
@@ -82,18 +95,18 @@ def get_quiz_content(quiz_id: str) -> dict:
         "url": quiz[1],
         "preguntas": []
     }
-    
+
     for p in preguntas:
         p_id, _, p_texto = p
         respuestas = db.obtener_respuestas(p_id)
         result["preguntas"].append({
             "pregunta": p_texto,
             "respuestas": [
-                {"texto": r[2], "correcta": bool(r[3])} 
+                {"texto": r[2], "correcta": bool(r[3])}
                 for r in respuestas
             ]
         })
-        
+
     return result
 
 if __name__ == "__main__":
