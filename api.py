@@ -53,5 +53,54 @@ async def get_quiz_text(quiz_id: str):
 
     return text
 
+@app.get("/quiz/{quiz_id}/json")
+async def get_quiz_json(quiz_id: str):
+    """
+    Obtiene un cuestionario completo de la base de datos y lo retorna en formato JSON
+    """
+    # Obtener metadatos del cuestionario
+    cuestionario_row = db.obtener_cuestionario_por_id(quiz_id)
+    if not cuestionario_row:
+        raise HTTPException(status_code=404, detail="Cuestionario no encontrado")
+    
+    # Formato: (id, url, nombre, fecha_creacion)
+    _, url, nombre, fecha = cuestionario_row
+    
+    # Obtener preguntas
+    preguntas_rows = db.obtener_preguntas(quiz_id)
+    
+    quiz_data = {
+        "id": quiz_id,
+        "nombre": nombre,
+        "url": url,
+        "fecha_creacion": fecha,
+        "preguntas": []
+    }
+    
+    for p_row in preguntas_rows:
+        # Formato: (id, cuestionario_id, texto)
+        p_id, _, p_texto = p_row
+        
+        pregunta_item = {
+            "id": p_id,
+            "texto": p_texto,
+            "respuestas": []
+        }
+        
+        # Obtener respuestas para esta pregunta
+        respuestas_rows = db.obtener_respuestas(p_id)
+        for r_row in respuestas_rows:
+            # Formato: (id, pregunta_id, texto, correcta)
+            r_id, _, r_texto, r_correcta = r_row
+            pregunta_item["respuestas"].append({
+                "id": r_id,
+                "texto": r_texto,
+                "correcta": bool(r_correcta)
+            })
+            
+        quiz_data["preguntas"].append(pregunta_item)
+        
+    return quiz_data
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
