@@ -19,7 +19,7 @@ async def handle_scrape(request: ScrapeRequest):
     url = request.url
     if not url.endswith("#test"):
         url += "#test"
-    
+
     try:
         cuestionario_id = await scrape(url)
         return {"success": True, "cuestionario_id": cuestionario_id}
@@ -33,7 +33,7 @@ async def get_quiz_text(quiz_id: str):
     """
     # Obtener todas las preguntas para el cuestionario dado
     preguntas = db.obtener_preguntas(quiz_id)
-    
+
     if not preguntas:
         raise HTTPException(status_code=404, detail="Cuestionario no encontrado")
 
@@ -62,13 +62,13 @@ async def get_quiz_json(quiz_id: str):
     cuestionario_row = db.obtener_cuestionario_por_id(quiz_id)
     if not cuestionario_row:
         raise HTTPException(status_code=404, detail="Cuestionario no encontrado")
-    
+
     # Formato: (id, url, nombre, fecha_creacion)
     _, url, nombre, fecha = cuestionario_row
-    
+
     # Obtener preguntas
     preguntas_rows = db.obtener_preguntas(quiz_id)
-    
+
     quiz_data = {
         "id": quiz_id,
         "nombre": nombre,
@@ -76,17 +76,17 @@ async def get_quiz_json(quiz_id: str):
         "fecha_creacion": fecha,
         "preguntas": []
     }
-    
+
     for p_row in preguntas_rows:
         # Formato: (id, cuestionario_id, texto)
         p_id, _, p_texto = p_row
-        
+
         pregunta_item = {
             "id": p_id,
-            "texto": p_texto,
+            "pregunta": p_texto,
             "respuestas": []
         }
-        
+
         # Obtener respuestas para esta pregunta
         respuestas_rows = db.obtener_respuestas(p_id)
         for r_row in respuestas_rows:
@@ -97,10 +97,10 @@ async def get_quiz_json(quiz_id: str):
                 "texto": r_texto,
                 "correcta": bool(r_correcta)
             })
-            
+
         quiz_data["preguntas"].append(pregunta_item)
-        
+
     return quiz_data
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8005)
