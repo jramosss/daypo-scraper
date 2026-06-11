@@ -1,7 +1,7 @@
 import asyncio
 import base64
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from playwright.async_api import Page, async_playwright
 
@@ -81,7 +81,7 @@ async def extraer_respuestas_pregunta(page: Page) -> List[Dict[str, Any]]:
     vai_canvases = await page.query_selector_all("canvas[id^='vai']")
 
     # Obtener los textos de las respuestas
-    respuestas_td = await page.locator("td[id='cuestiones1']").locator("td.pr05").all_inner_texts()
+    respuestas_td = await page.locator("#cuestiones1").locator("td.pr05").all_inner_texts()
 
     for idx, canvas in enumerate(vai_canvases):
         canvas_id = await canvas.get_attribute("id")
@@ -109,12 +109,12 @@ async def avanzar_pregunta(page: Page) -> None:
     await siguiente.click()
 
 
-async def extraer_datos_cuestionario(page: Page, numero_preguntas: int) -> tuple[List[str], List[Dict[str, Any]]]:
+async def extraer_datos_cuestionario(page: Page, numero_preguntas: int) -> tuple[List[Tuple[str, Optional[str]]], List[Dict[str, Any]]]:
     """
     Extrae todos los datos del cuestionario (preguntas y respuestas)
 
     Returns:
-        Tupla con (lista de textos de preguntas, lista de respuestas con pregunta_idx)
+        Tupla con (lista de tuplas (texto, imagen) de preguntas, lista de respuestas con pregunta_idx)
     """
     preguntas_data = []
     respuestas_data = []
@@ -125,7 +125,73 @@ async def extraer_datos_cuestionario(page: Page, numero_preguntas: int) -> tuple
 
         # Extraer la pregunta
         pregunta_texto = await extraer_texto_pregunta(page)
-        preguntas_data.append(pregunta_texto)
+        
+        # Buscar si existe una imagen representada como canvas dentro del contenedor principal
+        # que no sea parte de las respuestas
+        imagen_path = None
+        main_label = page.locator("xpath=/html/body/div[2]/div[3]/div[2]")
+        if await main_label.count() > 0:
+            all_canvases = await main_label.locator("canvas").all()
+            for canvas in all_canvases:
+                canvas_id = await canvas.get_attribute("id") or ""
+                # Comprobar si está fuera de #cuestiones1
+                is_in_cuestiones = await canvas.evaluate(
+                    "canvas => !!canvas.closest('#cuestiones1')"
+                )
+                if not is_in_cuestiones and not canvas_id.startswith("vai") and not canvas_id.startswith("op"):
+                    # Es una imagen de la pregunta!
+                    try:
+                        import os
+                        import base64
+                        
+                        # Esperar a que el canvas esté dibujado (no vacío)
+                        # Comprobar si hay algún píxel no transparente (alpha != 0)
+                        for _ in range(20):
+                            is_blank = await canvas.evaluate("""canvas => {
+                                const ctx = canvas.getContext('2d');
+                                if (!ctx) return true;
+                                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                                for (let i = 3; i < data.length; i += 4) {
+                                    if (data[i] !== 0) {
+                                        return false; // Tiene contenido
+                                    }
+                                }
+                                return true; // Totalmente transparente
+                            }""")
+                            if not is_blank:
+                                break
+                            await page.wait_for_timeout(50)
+                        
+                        # Obtener data URL del canvas
+                        data_url = await canvas.evaluate("canvas => canvas.toDataURL()")
+                        if "," in data_url:
+                            # Formato: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+                            header, base64_data = data_url.split(",", 1)
+                            image_bytes = base64.b64decode(base64_data)
+                            
+                            # Crear directorio images si no existe
+                            base_dir = os.path.dirname(os.path.abspath(__file__))
+                            images_dir = os.path.join(base_dir, "images")
+                            os.makedirs(images_dir, exist_ok=True)
+                            
+                            # Generar un nombre de archivo único para esta pregunta
+                            nombre_cuestionario = extraer_nombre_cuestionario(page.url)
+                            filename = f"{nombre_cuestionario}_{i}.png"
+                            filepath = os.path.join(images_dir, filename)
+                            
+                            # Escribir la imagen a disco
+                            with open(filepath, "wb") as f:
+                                f.write(image_bytes)
+                                
+                            # Guardar la ruta relativa (e.g. 'images/nombre_0.png')
+                            imagen_path = f"images/{filename}"
+                            print(f"Imagen de pregunta guardada en: {imagen_path}")
+                    except Exception as e:
+                        import sys
+                        print(f"Error al guardar imagen de pregunta: {e}", file=sys.stderr)
+                    break # Asumimos una imagen por pregunta
+
+        preguntas_data.append((pregunta_texto, imagen_path))
         pregunta_idx = len(preguntas_data) - 1
 
         # Extraer las respuestas
@@ -147,14 +213,14 @@ async def extraer_datos_cuestionario(page: Page, numero_preguntas: int) -> tuple
 
 
 def guardar_cuestionario(db: Database, cuestionario_id: str,
-                         preguntas_data: List[str], respuestas_data: List[Dict[str, Any]]) -> None:
+                         preguntas_data: List[Tuple[str, Optional[str]]], respuestas_data: List[Dict[str, Any]]) -> None:
     """
     Guarda el cuestionario completo en la base de datos
 
     Args:
         db: Instancia de Database
         cuestionario_id: ID del cuestionario
-        preguntas_data: Lista de textos de preguntas
+        preguntas_data: Lista de tuplas (texto, imagen) de preguntas
         respuestas_data: Lista de respuestas con pregunta_idx
     """
     # Insertar todas las preguntas

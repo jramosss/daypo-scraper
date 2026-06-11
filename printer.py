@@ -13,7 +13,7 @@ def main():
 
     text = ""
     for i, pregunta_row in enumerate(preguntas):
-        pregunta_id, cuestionario_id_row, pregunta_texto = pregunta_row
+        pregunta_id, cuestionario_id_row, pregunta_texto, *optional_image = pregunta_row
         text += f"{i + 1}. {pregunta_texto}\n"
 
         respuestas = db.obtener_respuestas(pregunta_id)

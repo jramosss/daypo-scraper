@@ -47,9 +47,16 @@ class Database:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             cuestionario_id TEXT,
             texto TEXT,
+            imagen TEXT,
             FOREIGN KEY (cuestionario_id) REFERENCES cuestionarios(id) ON DELETE CASCADE
         )
         """)
+
+        # Migración: Agregar columna imagen a la tabla preguntas si no existe
+        try:
+            c.execute("ALTER TABLE preguntas ADD COLUMN imagen TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         # Crear tabla respuestas (con relación a preguntas)
         c.execute("""
@@ -93,13 +100,14 @@ class Database:
 
         return nombre
 
-    def insertar_pregunta(self, cuestionario_id: str, texto: str) -> int:
+    def insertar_pregunta(self, cuestionario_id: str, texto: str, imagen: Optional[str] = None) -> int:
         """
         Inserta una pregunta y retorna su ID
 
         Args:
             cuestionario_id: ID del cuestionario al que pertenece
             texto: Texto de la pregunta
+            imagen: Ruta de la imagen asociada (opcional)
 
         Returns:
             ID de la pregunta insertada
@@ -108,8 +116,8 @@ class Database:
         c = conn.cursor()
 
         c.execute(
-            "INSERT INTO preguntas (cuestionario_id, texto) VALUES (?, ?)",
-            (cuestionario_id, texto)
+            "INSERT INTO preguntas (cuestionario_id, texto, imagen) VALUES (?, ?, ?)",
+            (cuestionario_id, texto, imagen)
         )
 
         pregunta_id = c.lastrowid
@@ -118,13 +126,13 @@ class Database:
 
         return pregunta_id
 
-    def insertar_preguntas_batch(self, cuestionario_id: str, textos: List[str]) -> List[int]:
+    def insertar_preguntas_batch(self, cuestionario_id: str, preguntas: List[Tuple[str, Optional[str]]]) -> List[int]:
         """
         Inserta múltiples preguntas y retorna sus IDs
 
         Args:
             cuestionario_id: ID del cuestionario al que pertenecen
-            textos: Lista de textos de preguntas
+            preguntas: Lista de tuplas (texto, imagen)
 
         Returns:
             Lista de IDs de las preguntas insertadas
@@ -139,8 +147,8 @@ class Database:
         ).fetchone()[0]
 
         c.executemany(
-            "INSERT INTO preguntas (cuestionario_id, texto) VALUES (?, ?)",
-            [(cuestionario_id, texto) for texto in textos]
+            "INSERT INTO preguntas (cuestionario_id, texto, imagen) VALUES (?, ?, ?)",
+            [(cuestionario_id, p[0], p[1]) for p in preguntas]
         )
 
         # Obtener los IDs insertados (deben ser consecutivos desde max_id_before + 1)

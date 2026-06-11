@@ -94,10 +94,12 @@ def get_quiz_content(quiz_id: str) -> dict:
         "preguntas": []
     }
     for p in preguntas:
-        p_id, _, p_texto = p
+        p_id, _, p_texto, *p_image_opt = p
+        p_imagen = p_image_opt[0] if p_image_opt else None
         respuestas = db.obtener_respuestas(p_id)
         result["preguntas"].append({
             "pregunta": p_texto,
+            "imagen": p_imagen,
             "respuestas": [
                 {"texto": r[2], "correcta": bool(r[3])}
                 for r in respuestas

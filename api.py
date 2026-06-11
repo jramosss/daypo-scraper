@@ -1,12 +1,18 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from main import scrape
 from database import Database
 import uvicorn
+import os
 
 app = FastAPI(title="Daypo Quiz Scraper API")
 db = Database()
+
+# Asegurar la existencia del directorio de imágenes y montarlo como estático
+os.makedirs("images", exist_ok=True)
+app.mount("/images", StaticFiles(directory="images"), name="images")
 
 class ScrapeRequest(BaseModel):
     url: str
@@ -39,8 +45,8 @@ async def get_quiz_text(quiz_id: str):
 
     text = f"--- CUESTIONARIO: {quiz_id} ---\n\n"
     for i, pregunta_row in enumerate(preguntas):
-        # El formato de la fila es (id, cuestionario_id, texto) según database.py
-        pregunta_id, _, pregunta_texto = pregunta_row
+        # El formato de la fila es (id, cuestionario_id, texto, imagen) según database.py
+        pregunta_id, _, pregunta_texto, *optional_image = pregunta_row
         text += f"{i + 1}. {pregunta_texto}\n"
 
         respuestas = db.obtener_respuestas(pregunta_id)
@@ -78,12 +84,14 @@ async def get_quiz_json(quiz_id: str):
     }
 
     for p_row in preguntas_rows:
-        # Formato: (id, cuestionario_id, texto)
-        p_id, _, p_texto = p_row
+        # Formato: (id, cuestionario_id, texto, imagen)
+        p_id, _, p_texto, *p_image_opt = p_row
+        p_imagen = p_image_opt[0] if p_image_opt else None
 
         pregunta_item = {
             "id": p_id,
             "pregunta": p_texto,
+            "imagen": p_imagen,
             "respuestas": []
         }
 

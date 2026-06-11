@@ -7,6 +7,7 @@ services:
       - "8005:8005"
     volumes:
       - ./cuestionarios.db:/app/cuestionarios.db
+      - ./images:/app/images
     # Habilitar entrada interactiva si es necesario
     stdin_open: true
     tty: true
