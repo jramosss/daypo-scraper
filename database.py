@@ -278,7 +278,7 @@ class Database:
 
         Args:
             cuestionario_id: ID (nombre) del cuestionario
-
+ 
         Returns:
             Tupla (id, url, nombre, fecha_creacion) o None si no existe
         """
@@ -293,4 +293,47 @@ class Database:
         conn.close()
 
         return result
+
+    def eliminar_cuestionario(self, cuestionario_id: str) -> bool:
+        """
+        Elimina un cuestionario por su ID (nombre), todas sus preguntas y respuestas asociadas (por CASCADE),
+        y elimina los archivos de imagen locales asociados a las preguntas.
+
+        Args:
+            cuestionario_id: ID (nombre) del cuestionario a eliminar
+
+        Returns:
+            True si se eliminó, False si no se encontró
+        """
+        conn = self.get_connection()
+        c = conn.cursor()
+
+        # Verificar si existe
+        c.execute("SELECT 1 FROM cuestionarios WHERE id = ?", (cuestionario_id,))
+        if not c.fetchone():
+            conn.close()
+            return False
+
+        # Obtener los paths de imágenes de las preguntas de este cuestionario antes de eliminarlas
+        c.execute("SELECT imagen FROM preguntas WHERE cuestionario_id = ? AND imagen IS NOT NULL", (cuestionario_id,))
+        imagenes = [row[0] for row in c.fetchall()]
+
+        # Eliminar el cuestionario de la base de datos (las preguntas y respuestas se eliminarán por CASCADE)
+        c.execute("DELETE FROM cuestionarios WHERE id = ?", (cuestionario_id,))
+        conn.commit()
+        conn.close()
+
+        # Eliminar los archivos físicos de imagen
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for img_rel_path in imagenes:
+            if img_rel_path:
+                img_abs_path = os.path.join(base_dir, img_rel_path)
+                try:
+                    if os.path.exists(img_abs_path):
+                        os.remove(img_abs_path)
+                        print(f"DEBUG: Archivo de imagen eliminado: {img_abs_path}")
+                except Exception as e:
+                    print(f"Error al eliminar la imagen {img_abs_path}: {e}")
+
+        return True
 

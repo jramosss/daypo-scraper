@@ -110,5 +110,15 @@ async def get_quiz_json(quiz_id: str):
 
     return quiz_data
 
+@app.delete("/quiz/{quiz_id}")
+async def delete_quiz(quiz_id: str):
+    """
+    Elimina un cuestionario de la base de datos por su ID (nombre) y sus archivos locales asociados
+    """
+    success = db.eliminar_cuestionario(quiz_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Cuestionario no encontrado")
+    return {"success": True, "message": f"Cuestionario '{quiz_id}' eliminado exitosamente"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8005)
